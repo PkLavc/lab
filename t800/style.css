@@ -1,21 +1,26 @@
-@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Space+Mono:wght@400;700&display=swap');
-
 :root { color-scheme: dark; --ink: #eef2ed; --line: rgba(220, 230, 220, .28); --accent: #d5ff63; }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; background: #080b0b; }
-body { color: var(--ink); font-family: 'Space Mono', monospace; overflow: hidden; }
+body { color: var(--ink); font-family: ui-monospace, Consolas, monospace; overflow: hidden; }
 .stage { min-height: 100vh; display: grid; grid-template-rows: minmax(0, 1fr) auto; position: relative; isolation: isolate; }
 .stage::before { content: ''; position: fixed; inset: 0; z-index: -2; background: radial-gradient(ellipse at 50% 38%, #26372f 0%, #101714 47%, #080b0b 82%); }
 .viewport { min-height: 0; position: relative; overflow: hidden; }
 .viewport canvas { display: block; width: 100%; height: 100%; }
 .loading, .error { position: absolute; z-index: 5; inset: 50% auto auto 50%; transform: translate(-50%, -50%); font-size: 11px; letter-spacing: .12em; color: var(--accent); }
 .error { width: min(90%, 620px); padding: 18px; border: 1px solid #ff7b63; color: #ff9a86; background: rgba(40, 10, 7, .9); line-height: 1.7; }
+.skin-status { position: absolute; top: 18px; left: 18px; z-index: 4; padding: 7px 9px; border: 1px solid var(--line); background: rgba(8, 11, 11, .68); color: var(--accent); font-size: 10px; letter-spacing: .08em; }
+.skylet-avatar { --skylet-x: 0px; --skylet-y: 0px; --skylet-tilt: 0deg; --mouth-open: 0; position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; overflow: hidden; pointer-events: none; background: radial-gradient(ellipse at 50% 42%, #312650 0%, #11151d 50%, #080b0b 84%); }
+.skylet-avatar[hidden] { display: none; }
+.skylet-avatar img { display: block; width: min(100%, 780px); height: min(100%, 900px); object-fit: contain; transform: translate(var(--skylet-x), var(--skylet-y)); transition: transform .08s linear; filter: drop-shadow(0 20px 35px rgba(0, 0, 0, .45)); }
+.skylet-mouth { position: absolute; left: calc(50% - 31px); top: calc(50% - 41px); width: 62px; height: 9px; border-radius: 50%; opacity: calc(.08 + var(--mouth-open) * .82); background: #32050e; box-shadow: 0 0 calc(3px + var(--mouth-open) * 12px) rgba(255, 55, 120, .82); transform: translate(var(--skylet-x), var(--skylet-y)) scaleY(calc(.34 + var(--mouth-open) * 1.85)); transform-origin: center; transition: transform .05s linear, opacity .05s linear; }
+.viewport.skylet-active canvas { visibility: hidden; }
+@media (max-width: 600px) { .skylet-avatar img { width: 118%; height: 94%; } .skylet-mouth { left: calc(50% - 25px); top: calc(50% - 35px); width: 50px; } }
 .console { position: relative; z-index: 6; width: min(100%, 760px); margin: 0 auto; padding: 12px 6vw 24px; }
 .speech-form { display: flex; gap: 10px; }
-.speech-form input { min-width: 0; flex: 1; border: 1px solid var(--line); border-radius: 3px; padding: 13px 14px; outline: 0; color: var(--ink); background: rgba(8, 11, 11, .84); font: 17px 'Barlow Condensed', sans-serif; letter-spacing: .03em; }
+.speech-form input { min-width: 0; flex: 1; border: 1px solid var(--line); border-radius: 3px; padding: 13px 14px; outline: 0; color: var(--ink); background: rgba(8, 11, 11, .84); font: 600 17px system-ui, sans-serif; letter-spacing: .03em; }
 .speech-form input::placeholder { color: rgba(238, 242, 237, .5); }
-.speech-form button { border: 1px solid var(--accent); border-radius: 3px; padding: 0 18px; color: #0b100c; background: var(--accent); cursor: pointer; font: 700 12px 'Space Mono', monospace; transition: filter .2s; }
+.speech-form button { border: 1px solid var(--accent); border-radius: 3px; padding: 0 18px; color: #0b100c; background: var(--accent); cursor: pointer; font: 700 12px ui-monospace, monospace; transition: filter .2s; }
 .speech-form button:hover, .speech-form button:focus-visible { filter: brightness(1.15); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 @media (max-width: 600px) { .console { padding-inline: 5vw; } .speech-form input { font-size: 18px; } .speech-form button { padding-inline: 14px; } }
