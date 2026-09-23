@@ -4,8 +4,7 @@ import { DRACOLoader } from './vendor/three/DRACOLoader.js';
 
 const CONFIG = {
   skins: {
-    endo: { label: 'T-800 endoskeleton', modelUrl: './T-800-bust.glb' },
-    skylet: { label: 'Skylet portrait', modelUrl: './T-800-bust.glb' }
+    endo: { label: 'S-800 endoskeleton', modelUrl: './S-800-bust.glb' }
   },
   eyeSmoothing: 0.2, headSmoothing: 0.075, neckSmoothing: 0.045,
   headSensitivity: { x: 0.38, y: 0.22 }, neckSensitivity: { x: 0.12, y: 0.07 },
@@ -18,9 +17,6 @@ const loading = document.querySelector('#loading');
 const errorBox = document.querySelector('#error');
 const input = document.querySelector('#speech-input');
 const form = document.querySelector('#speech-form');
-const skinStatus = document.querySelector('#skin-status');
-const skyletAvatar = document.querySelector('#skylet-avatar');
-const skyletMouth = document.querySelector('#skylet-mouth');
 const pointer = new THREE.Vector2();
 const targetLook = new THREE.Vector2();
 const currentLook = new THREE.Vector2();
@@ -35,7 +31,6 @@ let jawBone, headBone, neckBone, headBaseQuaternion, neckBaseQuaternion, jawBase
 let mouthMorphs = [];
 const eyeBaseQuaternions = new Map();
 const eyeLocalForwards = new Map();
-let activeSkin = 'endo';
 let loadingSkin = false;
 let speech = { active: false, energy: 0, lastBoundary: 0 };
 let mouthOpenTarget = 0;
@@ -79,7 +74,8 @@ function discoverRig() {
     });
   });
   rig.userData.controls = { eyes, head: headBone, neck: neckBone };
-  console.info('T-800 controls', { leftEye: eyes.left?.name, rightEye: eyes.right?.name, head: headBone?.name, neck: neckBone?.name, jaw: jawBone?.name, morphs: mouthMorphs.map(({ name }) => name) });
+  window.__s800Controls = rig.userData.controls;
+  console.info('S-800 controls', { leftEye: eyes.left?.name, rightEye: eyes.right?.name, head: headBone?.name, neck: neckBone?.name, jaw: jawBone?.name, morphs: mouthMorphs.map(({ name }) => name) });
 }
 
 function setupScene() {
@@ -100,7 +96,7 @@ function setupScene() {
 }
 
 function frameCharacter() {
-  const head = character.getObjectByName('T800Endo-Head') || character.getObjectByName('Head');
+  const head = character.getObjectByName('S800Endo-Head') || character.getObjectByName('S-800-Head') || character.getObjectByName('Head');
   const bounds = new THREE.Box3().setFromObject(head || character);
   const size = bounds.getSize(new THREE.Vector3());
   const target = bounds.getCenter(new THREE.Vector3());
@@ -127,7 +123,20 @@ function updatePointer(event) {
   const rect = viewport.getBoundingClientRect();
   pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
   pointer.y = -(((event.clientY - rect.top) / rect.height) * 2 - 1);
-  targetLook.set(THREE.MathUtils.clamp(pointer.x, -1, 1), THREE.MathUtils.clamp(pointer.y, -1, 1));
+  // The neutral point is the projected midpoint between the actual eyes, not
+  // the geometrical centre of the browser viewport. This makes the character
+  // look straight ahead when the pointer is over its eyes.
+  const eyes = rig?.userData.controls?.eyes;
+  const visibleEyes = [eyes?.left, eyes?.right].filter(Boolean);
+  const eyeAnchor = new THREE.Vector3();
+  if (visibleEyes.length) {
+    visibleEyes.forEach((eye) => eyeAnchor.add(eye.getWorldPosition(new THREE.Vector3())));
+    eyeAnchor.multiplyScalar(1 / visibleEyes.length).project(camera);
+  }
+  targetLook.set(
+    THREE.MathUtils.clamp(pointer.x - eyeAnchor.x, -1, 1),
+    THREE.MathUtils.clamp(pointer.y - eyeAnchor.y, -1, 1)
+  );
 }
 
 function disposeCharacter(root) {
@@ -141,14 +150,6 @@ function disposeCharacter(root) {
 async function setSkin(requestedSkin) {
   const skin = CONFIG.skins[requestedSkin];
   if (!skin || loadingSkin) return;
-  if (requestedSkin === 'skylet') {
-    activeSkin = 'skylet';
-    viewport.classList.add('skylet-active');
-    skyletAvatar.hidden = false;
-    skinStatus.textContent = 'Skin: Skylet';
-    errorBox.hidden = true;
-    return;
-  }
   loadingSkin = true;
   loading.hidden = false;
   loading.textContent = `Loading ${skin.label}...`;
@@ -160,22 +161,15 @@ async function setSkin(requestedSkin) {
     if (character) { scene.remove(character); disposeCharacter(character); }
     character = nextCharacter;
     rig = nextRig;
-    viewport.classList.remove('skylet-active');
-    skyletAvatar.hidden = true;
     resetRigState();
     scene.add(character);
     discoverRig();
     frameCharacter();
     cacheEyeAim();
-    activeSkin = requestedSkin;
-    skinStatus.textContent = `Skin: ${skin.label}`;
     errorBox.hidden = true;
   } catch (loadError) {
     console.error(loadError);
-    if (requestedSkin !== 'endo') {
-      errorBox.hidden = false;
-      errorBox.textContent = `Skin ${skin.label} is not available. Run export_web_bust.py in Blender, then reload.`;
-    } else throw loadError;
+    throw loadError;
   } finally {
     loading.hidden = true;
     loadingSkin = false;
@@ -215,10 +209,12 @@ function animateMouth(delta) {
   mouthOpenAmount = THREE.MathUtils.damp(mouthOpenAmount, mouthOpenTarget, mouthOpenTarget > mouthOpenAmount ? CONFIG.mouthAttack : CONFIG.mouthRelease, delta);
   if (jawBone && jawBaseQuaternion) jawBone.quaternion.copy(jawBaseQuaternion).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), mouthOpenAmount));
   mouthMorphs.forEach(({ object, index }) => { object.morphTargetInfluences[index] = mouthOpenAmount; });
-  if (activeSkin === 'skylet') skyletAvatar.style.setProperty('--mouth-open', mouthOpenAmount.toFixed(3));
 }
 
-function stopSpeech() { speech = { active: false, energy: 0, lastBoundary: 0 }; mouthOpenTarget = 0; }
+function stopSpeech() {
+  speech = { active: false, energy: 0, lastBoundary: 0 };
+  mouthOpenTarget = 0;
+}
 
 function animate() {
   requestAnimationFrame(animate);
@@ -232,13 +228,6 @@ function animate() {
     character.updateMatrixWorld(true);
     applyEyeTracking(eyes);
     animateMouth(delta);
-  }
-  if (activeSkin === 'skylet') {
-    const x = currentHeadLook.x * 18;
-    const y = -currentHeadLook.y * 12;
-    skyletAvatar.style.setProperty('--skylet-x', `${x.toFixed(1)}px`);
-    skyletAvatar.style.setProperty('--skylet-y', `${y.toFixed(1)}px`);
-    skyletAvatar.style.setProperty('--skylet-tilt', `${(currentHeadLook.x * -5).toFixed(2)}deg`);
   }
   renderer.render(scene, camera);
 }
@@ -255,7 +244,6 @@ function onSpeechBoundary(event) {
 function speak(text) {
   const cleanText = text.trim();
   if (!cleanText) return;
-  if (/^skylet[!.?\s]*$/i.test(cleanText)) { setSkin(activeSkin === 'skylet' ? 'endo' : 'skylet'); return; }
   window.speechSynthesis.cancel();
   stopSpeech();
   const utterance = new SpeechSynthesisUtterance(cleanText);
@@ -282,7 +270,7 @@ async function load() {
   catch (loadError) {
     loading.remove();
     errorBox.hidden = false;
-    errorBox.textContent = `Could not load T-800.glb. Serve this folder over HTTP. Details: ${loadError.message}`;
+    errorBox.textContent = `Could not load S-800-bust.glb. Serve this folder over HTTP. Details: ${loadError.message}`;
     console.error(loadError);
   }
 }

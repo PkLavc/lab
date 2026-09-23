@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Página de validação da Skylet IA sobre o visualizador original do S-800.">
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="canonical" href="https://pklavc.com/lab/ia/">
+  <base href="../t800/">
+  <title>Skylet IA — S-800</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="../ia/chat.css">
+  <script type="importmap">{ "imports": { "three": "./vendor/three/three.module.js" } }</script>
+</head>
+<body>
+  <main class="stage" aria-label="Skylet IA sobre o visualizador original do S-800">
+    <div id="viewport" class="viewport">
+      <div id="loading" class="loading">Carregando modelo...</div>
+      <div id="error" class="error" hidden></div>
+      <div id="skin-status" class="skin-status" aria-live="polite">Skin: S-800 endoskeleton</div>
+      <div id="skylet-avatar" class="skylet-avatar" hidden aria-label="Skylet">
+        <img src="Assets/Skylet/skylet-character.png" alt="Skylet, assistente cibernética">
+        <span id="skylet-mouth" class="skylet-mouth" aria-hidden="true"></span>
+      </div>
+      <section id="chat-log" class="lab-chat-log" aria-live="polite" aria-label="Conversa"></section>
+    </div>
+    <section class="console lab-chat-console" aria-label="Mensagem para a assistente">
+      <form id="speech-form" class="speech-form lab-chat-form">
+        <label class="sr-only" for="speech-input">Mensagem para a assistente</label>
+        <textarea id="speech-input" name="message" rows="1" maxlength="4000" autocomplete="off" placeholder="Escreva uma mensagem..."></textarea>
+        <button class="lab-send-button" type="submit" aria-label="Enviar mensagem" title="Enviar mensagem">↑</button>
+        <button id="voice-toggle" class="lab-voice-button" type="button" aria-pressed="false" aria-label="Respostas em áudio desligadas" title="Respostas em áudio desligadas">♬</button>
+      </form>
+    </section>
+  </main>
+
+  <footer class="lab-footer">
+    <div class="lab-footer-links" aria-label="Links do rodapé">
+      <a href="https://github.com/PkLavc" target="_blank" rel="noopener noreferrer">GitHub</a>
+      <a href="https://www.linkedin.com/in/pklavc/" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+      <a href="mailto:contact@pklavc.com">Email</a>
+      <a class="is-accent" href="https://github.com/sponsors/PkLavc" target="_blank" rel="noopener noreferrer">Sponsor me</a>
+    </div>
+    <p>&copy; <span data-current-year></span> Patrick Araujo <span aria-hidden="true">•</span>
+      <a href="/privacy-policy/">Privacy Policy</a> /
+      <a href="/terms-of-use/">Terms of Use</a> /
+      <a href="/editorial-policy/">Editorial Policy</a>
+    </p>
+  </footer>
+
+  <script type="module" src="main.js"></script>
+  <script src="../ia/chat.js"></script>
+</body>
+</html>
