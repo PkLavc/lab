@@ -21,30 +21,52 @@ def first_mesh(objects):
     return next(obj for obj in objects if obj.type == "MESH")
 
 
-def material(name, color, roughness=.62, alpha=1):
+def material(name, color, roughness=.62, alpha=1, texture_file=None, tint_texture=False):
     item = bpy.data.materials.new(name)
     item.use_nodes = True
     bsdf = item.node_tree.nodes.get("Principled BSDF")
     bsdf.inputs["Base Color"].default_value = (*color, alpha)
     bsdf.inputs["Roughness"].default_value = roughness
+    if texture_file:
+        image = bpy.data.images.load(str(SOURCE / texture_file), check_existing=True)
+        image.scale(768, 768)
+        texture = item.node_tree.nodes.new("ShaderNodeTexImage")
+        texture.image = image
+        if tint_texture:
+            # The Call of Duty files are shader masks. Bake the supplied tint
+            # into a compact color image so the portable glTF has the intended
+            # skin/leather hue without its proprietary shader.
+            pixels = list(image.pixels[:])
+            for index in range(0, len(pixels), 4):
+                pixels[index] *= color[0]
+                pixels[index + 1] *= color[1]
+                pixels[index + 2] *= color[2]
+            baked = bpy.data.images.new(f"{name} baked", image.size[0], image.size[1], alpha=True)
+            baked.pixels.foreach_set(pixels)
+            texture.image = baked
+        item.node_tree.links.new(texture.outputs["Color"], bsdf.inputs["Base Color"])
     if alpha < 1:
         bsdf.inputs["Alpha"].default_value = alpha
         item.surface_render_method = 'DITHERED'
     return item
 
 
-SKIN = material("Smoke skin", (0.115, 0.040, 0.012), .76)
+SKIN = material("Smoke skin", (0.32, 0.18, 0.095), .76, texture_file="cm_t_face_00_00_00.png", tint_texture=True)
 EYE = material("Smoke eye white", (0.84, 0.72, 0.48), .28)
 IRIS = material("Smoke iris", (0.028, 0.012, 0.004), .2)
-BEARD = material("Smoke beard", (0.006, 0.003, 0.001), .88)
+BEARD = material("Smoke beard", (0.012, 0.006, 0.002), .88, texture_file="beard_dif.png", tint_texture=True)
 TEETH = material("Smoke teeth", (0.68, 0.56, 0.37), .44)
-JACKET = material("Smoke jacket", (0.016, 0.020, 0.027), .45)
-UNDER = material("Smoke shirt", (0.13, 0.11, 0.075), .68)
+JACKET = material("Smoke jacket", (0.020, 0.024, 0.030), .32, texture_file="Jacket_dif2.png", tint_texture=True)
+UNDER = material("Smoke shirt", (0.050, 0.038, 0.024), .72, texture_file="Shirt_dif.png", tint_texture=True)
 PANTS = material("Smoke pants", (0.010, 0.012, 0.016), .72)
 SHOES = material("Smoke shoes", (0.008, 0.007, 0.006), .48)
 HAT = material("Smoke hat", (0.018, 0.030, 0.022), .53)
 GLASS = material("Smoke glasses", (0.004, 0.006, 0.008), .16, .58)
 HAIR = material("Smoke hair", (0.004, 0.002, 0.001), .9)
+GOLD = material("Smoke gold", (0.58, 0.30, 0.045), .28)
+CIGAR = material("Smoke cigar", (0.14, 0.042, 0.008), .82)
+EMBER = material("Smoke ember", (0.9, 0.06, 0.004), .34)
+FUR = material("Smoke fur", (0.48, 0.35, 0.16), .93)
 
 
 def apply_material(obj, item, name):
@@ -154,6 +176,60 @@ for side in (-1, 1):
         braid.parent = bpy.data.objects["N_Head"]
         braid.matrix_parent_inverse.identity()
         braid.location = (side * offset, .018, .042)
+
+
+def face_box(name, location, scale, item, bevel=0):
+    bpy.ops.mesh.primitive_cube_add()
+    obj = bpy.context.object
+    obj.name = name
+    obj.scale = scale
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    obj.location = location
+    obj.data.materials.append(item)
+    if bevel:
+        modifier = obj.modifiers.new("soft edges", 'BEVEL')
+        modifier.width = bevel
+        modifier.segments = 3
+        bpy.context.view_layer.objects.active = obj
+        bpy.ops.object.modifier_apply(modifier=modifier.name)
+    obj.parent = bpy.data.objects["cm_J_FaceRoot"]
+    obj.matrix_parent_inverse.identity()
+    return obj
+
+
+# The bundle's glasses material depends on a game shader AssetRipper cannot
+# reproduce. Rebuild thin frames/lenses at the original eye plane.
+for x in (-.038, .038):
+    face_box("Smoke lens", (x, -.132, .081), (.028, .0028, .014), GLASS, .004)
+    face_box("Smoke glasses top", (x, -.136, .096), (.030, .003, .002), GOLD, .0015)
+    face_box("Smoke glasses bottom", (x, -.136, .066), (.030, .003, .002), GOLD, .0015)
+    face_box("Smoke glasses side", (x - .028, -.136, .081), (.002, .003, .017), GOLD, .0015)
+    face_box("Smoke glasses side", (x + .028, -.136, .081), (.002, .003, .017), GOLD, .0015)
+face_box("Smoke glasses bridge", (0, -.136, .081), (.009, .003, .0025), GOLD, .0015)
+
+# Gold hat band and the characteristic cigar from the supplied presentation.
+bpy.ops.mesh.primitive_torus_add(major_radius=.088, minor_radius=.004, major_segments=32, minor_segments=8)
+hat_band = bpy.context.object
+hat_band.name = "Smoke hat gold band"
+hat_band.location = (0, .026, .118)
+hat_band.data.materials.append(GOLD)
+hat_band.parent = bpy.data.objects["N_Head"]
+hat_band.matrix_parent_inverse.identity()
+
+bpy.ops.mesh.primitive_cylinder_add(vertices=12, radius=.006, depth=.060, rotation=(0, 1.5708, 0))
+cigar = bpy.context.object
+cigar.name = "Smoke cigar"
+cigar.location = (.070, -.135, .011)
+cigar.data.materials.append(CIGAR)
+cigar.parent = bpy.data.objects["cm_J_MouthMove"]
+cigar.matrix_parent_inverse.identity()
+bpy.ops.mesh.primitive_cylinder_add(vertices=12, radius=.0064, depth=.006, rotation=(0, 1.5708, 0))
+ember = bpy.context.object
+ember.name = "Smoke cigar ember"
+ember.location = (.104, -.135, .011)
+ember.data.materials.append(EMBER)
+ember.parent = bpy.data.objects["cm_J_MouthMove"]
+ember.matrix_parent_inverse.identity()
 
 for obj in bpy.context.scene.objects:
     if obj.type == "EMPTY":

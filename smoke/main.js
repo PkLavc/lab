@@ -10,7 +10,7 @@ const CONFIG = {
   mouthIntensity: 0.58,
   mouthAttack: 20,
   mouthRelease: 11,
-  headHeightFraction: 1.22,
+  headHeightFraction: 0.58,
   cameraFov: 27
 };
 
@@ -39,13 +39,20 @@ let speech = { active: false, energy: 0, lastBoundary: 0 };
 const dracoLoader = new DRACOLoader().setDecoderPath('../t800/vendor/three/draco/');
 const gltfLoader = new GLTFLoader().setDRACOLoader(dracoLoader);
 
+function renderSize() {
+  const height = viewport.clientHeight;
+  return { width: Math.min(viewport.clientWidth, Math.round(height * .58)), height };
+}
+
 function setupScene() {
   scene = new THREE.Scene();
   scene.fog = new THREE.Fog('#090807', 1.8, 4.6);
-  camera = new THREE.PerspectiveCamera(CONFIG.cameraFov, viewport.clientWidth / viewport.clientHeight, 0.01, 100);
+  const size = renderSize();
+  camera = new THREE.PerspectiveCamera(CONFIG.cameraFov, size.width / size.height, 0.01, 100);
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.setSize(viewport.clientWidth, viewport.clientHeight);
+  renderer.setSize(size.width, size.height);
+  renderer.domElement.style.margin = '0 auto';
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.18;
@@ -72,7 +79,7 @@ function discoverControls() {
 function frameCharacter() {
   // The GLB keeps the full original skin (including legs) but the page uses
   // the same chest-up camera treatment as T-800.
-  const upperParts = ['Smoke_head', 'Smoke_hat', 'Smoke_hat_bandana', 'Smoke_hair', 'Smoke_jacket', 'Smoke_jacket_trim', 'Smoke_jacket_belt'];
+  const upperParts = ['Smoke_head', 'Smoke_hat', 'Smoke_hat_bandana', 'Smoke_hair'];
   const bounds = new THREE.Box3();
   upperParts.forEach((name) => {
     const object = character.getObjectByName(name);
@@ -81,9 +88,13 @@ function frameCharacter() {
   if (bounds.isEmpty()) bounds.setFromObject(character);
   const size = bounds.getSize(new THREE.Vector3());
   const target = bounds.getCenter(new THREE.Vector3());
-  target.y += size.y * 0.13;
+  // Keep the complete character in the GLB, but compose this page as a
+  // portrait: hat, face, collar and the top of the jacket, never its T-pose.
+  target.y -= size.y * 0.18;
   const distance = size.y / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * CONFIG.headHeightFraction);
   camera.position.set(target.x, target.y, target.z + distance);
+  camera.zoom = 1;
+  camera.updateProjectionMatrix();
   camera.lookAt(target);
 }
 
@@ -195,9 +206,10 @@ form.addEventListener('submit', (event) => { event.preventDefault(); speak(input
 viewport.addEventListener('pointermove', updatePointer);
 window.addEventListener('resize', () => {
   if (!renderer || !camera) return;
-  camera.aspect = viewport.clientWidth / viewport.clientHeight;
+  const size = renderSize();
+  camera.aspect = size.width / size.height;
   camera.updateProjectionMatrix();
-  renderer.setSize(viewport.clientWidth, viewport.clientHeight);
+  renderer.setSize(size.width, size.height);
   frameCharacter();
   cacheEyeAim();
 });
