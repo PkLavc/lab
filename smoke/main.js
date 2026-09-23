@@ -10,8 +10,8 @@ const CONFIG = {
   mouthIntensity: 0.58,
   mouthAttack: 20,
   mouthRelease: 11,
-  headHeightFraction: 0.82,
-  cameraFov: 29
+  headHeightFraction: 1.22,
+  cameraFov: 27
 };
 
 const viewport = document.querySelector('#viewport');
@@ -70,10 +70,18 @@ function discoverControls() {
 }
 
 function frameCharacter() {
-  const bounds = new THREE.Box3().setFromObject(character);
+  // The GLB keeps the full original skin (including legs) but the page uses
+  // the same chest-up camera treatment as T-800.
+  const upperParts = ['Smoke_head', 'Smoke_hat', 'Smoke_hat_bandana', 'Smoke_hair', 'Smoke_jacket', 'Smoke_jacket_trim', 'Smoke_jacket_belt'];
+  const bounds = new THREE.Box3();
+  upperParts.forEach((name) => {
+    const object = character.getObjectByName(name);
+    if (object) bounds.expandByObject(object);
+  });
+  if (bounds.isEmpty()) bounds.setFromObject(character);
   const size = bounds.getSize(new THREE.Vector3());
   const target = bounds.getCenter(new THREE.Vector3());
-  target.y += size.y * 0.05;
+  target.y += size.y * 0.13;
   const distance = size.y / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * CONFIG.headHeightFraction);
   camera.position.set(target.x, target.y, target.z + distance);
   camera.lookAt(target);
@@ -168,6 +176,7 @@ async function init() {
   try {
     const gltf = await gltfLoader.loadAsync('./Smoke-bust.glb');
     character = gltf.scene;
+    window.__smokeCharacter = character;
     scene.add(character);
     discoverControls();
     frameCharacter();

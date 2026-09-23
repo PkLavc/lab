@@ -2,10 +2,11 @@ import bpy
 from mathutils import Matrix, Vector
 from pathlib import Path
 
-# Produces the small runtime-only Snoop bust. Source assets are exported with
-# AssetRipper into C:\tmp and remain outside the Lab repository.
+# Builds the runtime model from the supplied Snoop Dogg bundle. The source
+# export remains outside the repository; only the compact final GLB is served.
 SOURCE = Path(r"C:\tmp\snoop-ripped\Assets")
 OUTPUT = Path(__file__).parent / "Smoke-bust.glb"
+MESH = SOURCE / "Mesh"
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
 
@@ -20,79 +21,149 @@ def first_mesh(objects):
     return next(obj for obj in objects if obj.type == "MESH")
 
 
-def configure_material(obj, name, texture, color, roughness=0.62, use_texture=False):
-    material = bpy.data.materials.new(name)
-    material.use_nodes = True
-    nodes = material.node_tree.nodes
-    bsdf = nodes.get("Principled BSDF")
-    bsdf.inputs["Base Color"].default_value = (*color, 1)
+def material(name, color, roughness=.62, alpha=1):
+    item = bpy.data.materials.new(name)
+    item.use_nodes = True
+    bsdf = item.node_tree.nodes.get("Principled BSDF")
+    bsdf.inputs["Base Color"].default_value = (*color, alpha)
     bsdf.inputs["Roughness"].default_value = roughness
-    if use_texture and texture.exists():
-        image = bpy.data.images.load(str(texture), check_existing=True)
-        tex = nodes.new("ShaderNodeTexImage")
-        tex.image = image
-        material.node_tree.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+    if alpha < 1:
+        bsdf.inputs["Alpha"].default_value = alpha
+        item.surface_render_method = 'DITHERED'
+    return item
+
+
+SKIN = material("Smoke skin", (0.115, 0.040, 0.012), .76)
+EYE = material("Smoke eye white", (0.84, 0.72, 0.48), .28)
+IRIS = material("Smoke iris", (0.028, 0.012, 0.004), .2)
+BEARD = material("Smoke beard", (0.006, 0.003, 0.001), .88)
+TEETH = material("Smoke teeth", (0.68, 0.56, 0.37), .44)
+JACKET = material("Smoke jacket", (0.016, 0.020, 0.027), .45)
+UNDER = material("Smoke shirt", (0.13, 0.11, 0.075), .68)
+PANTS = material("Smoke pants", (0.010, 0.012, 0.016), .72)
+SHOES = material("Smoke shoes", (0.008, 0.007, 0.006), .48)
+HAT = material("Smoke hat", (0.018, 0.030, 0.022), .53)
+GLASS = material("Smoke glasses", (0.004, 0.006, 0.008), .16, .58)
+HAIR = material("Smoke hair", (0.004, 0.002, 0.001), .9)
+
+
+def apply_material(obj, item, name):
+    obj.name = name
     obj.data.materials.clear()
-    obj.data.materials.append(material)
+    obj.data.materials.append(item)
+    return obj
 
 
-def attach(mesh, target_name, pivot=None):
-    target = bpy.data.objects.get(target_name)
-    if target is None:
-        raise RuntimeError(f"Missing rig node: {target_name}")
-    if pivot is None:
-        mesh.parent = target
-        mesh.matrix_parent_inverse = target.matrix_world.inverted()
-        return
-    # AssetRipper's loose mesh has vertices already in global character space.
-    # Shift them around their actual pivot before parenting so eye/jaw rotations
-    # use the original game's pivot rather than the scene origin.
-    mesh.data.transform(Matrix.Translation(-Vector(pivot)))
-    mesh.location = (0, 0, 0)
-    mesh.rotation_euler = (0, 0, 0)
-    mesh.parent = target
-    mesh.matrix_parent_inverse.identity()
+def import_body_part(filename, item, name):
+    obj = apply_material(first_mesh(import_gltf(MESH / filename)), item, name)
+    obj.parent = bpy.data.objects["cm_J_Root"]
+    obj.matrix_parent_inverse = obj.parent.matrix_world.inverted()
+    return obj
 
 
-# Facial hierarchy, including the original eye/mouth pivots.
-import_gltf(SOURCE / "p_cm_head_01.glb")
+def attach_head_part(filename, target_name, item, name, pivot=None):
+    obj = apply_material(first_mesh(import_gltf(MESH / filename)), item, name)
+    target = bpy.data.objects[target_name]
+    if pivot is not None:
+        # Loose facial meshes arrive in head-space. Re-center their vertices at
+        # their original game pivot so rotations happen at the eye/jaw itself.
+        obj.data.transform(Matrix.Translation(-Vector(pivot)))
+    obj.location = (0, 0, 0)
+    obj.rotation_euler = (0, 0, 0)
+    obj.parent = target
+    obj.matrix_parent_inverse.identity()
+    return obj
 
-head = first_mesh(import_gltf(SOURCE / "Mesh" / "cm_O_head.glb"))
-configure_material(head, "Smoke skin", SOURCE / "cm_t_face_00_00_00.png", (0.12, 0.047, 0.018), 0.76)
-attach(head, "cm_J_FaceRoot")
 
-left_eye = first_mesh(import_gltf(SOURCE / "Mesh" / "cm_O_eye_L.glb"))
-right_eye = first_mesh(import_gltf(SOURCE / "Mesh" / "cm_O_eye_R.glb"))
-for eye in (left_eye, right_eye):
-    configure_material(eye, "Smoke eyes", SOURCE / "cm_t_eyewhite_01.png", (0.48, 0.20, 0.055), 0.34)
-attach(left_eye, "cm_J_Eye_s_L", (0.0359, -0.0804, 0.0802))
-attach(right_eye, "cm_J_Eye_s_R", (-0.0359, -0.0804, 0.0802))
+# Full original body rig and complete clothing/shoe geometry.
+import_gltf(SOURCE / "snoop_dogg_clothes.glb")
+for filename, item, name in [
+    ("O_body.glb", SKIN, "Smoke body"),
+    ("Outfit_under_u.001.glb", PANTS, "Smoke pants"),
+    ("Outfit_under_u.001_0.glb", UNDER, "Smoke shirt"),
+    ("Outfit_knife_u.glb", JACKET, "Smoke accessory"),
+    ("Outfit_Shoes_u.glb", SHOES, "Smoke shoes"),
+    ("snoop_jacket_u.glb", JACKET, "Smoke jacket trim"),
+    ("snoop_jacket_u_0.glb", JACKET, "Smoke jacket belt"),
+    ("snoop_jacket_u_1.glb", JACKET, "Smoke jacket buckle"),
+    ("snoop_jacket_u_2.glb", JACKET, "Smoke jacket"),
+]:
+    import_body_part(filename, item, name)
 
-beard = first_mesh(import_gltf(SOURCE / "Mesh" / "O_hige00.glb"))
-configure_material(beard, "Smoke beard", SOURCE / "beard_dif.png", (0.007, 0.004, 0.002), 0.82)
-attach(beard, "cm_J_MouthLow", (0, -0.1008, -0.0006))
+# The supplied head bundle is a separate facial hierarchy. It attaches to the
+# original full-body head bone, then every visible head part follows it.
+head_nodes = import_gltf(SOURCE / "p_cm_head_01.glb")
+head_root = next(obj for obj in head_nodes if obj.name == "p_cm_head_01")
+head_root.parent = bpy.data.objects["cm_J_Head"]
+head_root.matrix_parent_inverse.identity()
+head_root.location = (0, 0, 0)
+head_root.scale = (1.9, 1.9, 1.9)
 
-teeth = first_mesh(import_gltf(SOURCE / "Mesh" / "cm_O_ha.glb"))
-configure_material(teeth, "Smoke teeth", SOURCE / "Snoop_teeth_dif.png", (0.66, 0.53, 0.33), 0.48)
-attach(teeth, "cm_J_MouthLow", (0, -0.1008, -0.0006))
+attach_head_part("cm_O_head.glb", "cm_J_FaceRoot", SKIN, "Smoke head")
+attach_head_part("O_hige00.glb", "cm_J_MouthLow", BEARD, "Smoke beard", (0, -0.1008, -0.0006))
+attach_head_part("cm_O_ha.glb", "cm_J_MouthLow", TEETH, "Smoke teeth", (0, -0.1008, -0.0006))
 
+
+def eye(target_name, side):
+    target = bpy.data.objects[target_name]
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=20, ring_count=12, radius=.018)
+    globe = bpy.context.object
+    globe.name = f"Smoke {side} eye"
+    globe.data.materials.append(EYE)
+    globe.parent = target
+    globe.matrix_parent_inverse.identity()
+    globe.location = (0, 0, 0)
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=16, ring_count=10, radius=.008)
+    pupil = bpy.context.object
+    pupil.name = f"Smoke {side} pupil"
+    pupil.data.materials.append(IRIS)
+    pupil.parent = target
+    pupil.matrix_parent_inverse.identity()
+    pupil.location = (0, -.016, 0)
+
+
+eye("cm_J_Eye_s_L", "left")
+eye("cm_J_Eye_s_R", "right")
+
+# Original Snoop head accessories. Their mesh coordinates are local to the
+# named attachment pivots in the supplied facial hierarchy.
+attach_head_part("Snoop Dogg_Hat.glb", "N_Head", HAT, "Smoke hat bandana")
+attach_head_part("Snoop Dogg_Hat_0.glb", "N_Head", HAT, "Smoke hat")
+attach_head_part("Snoop Dogg_Glasses_u.glb", "N_Megane", GLASS, "Smoke glasses")
+
+# The source pack references a base-game hair mesh that is not bundled. A small
+# low-poly hair cap supplies that missing visible geometry, parented to the
+# exact original head pivot, without adding a heavy external asset.
+bpy.ops.mesh.primitive_uv_sphere_add(segments=24, ring_count=12)
+hair = bpy.context.object
+hair.name = "Smoke hair"
+hair.scale = (.096, .09, .072)
+bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+hair.location = (0, .012, .095)
+hair.data.materials.append(HAIR)
+hair.parent = bpy.data.objects["N_Head"]
+hair.matrix_parent_inverse.identity()
+
+# Visible braided side strands, also parented to the original head pivot.
+for side in (-1, 1):
+    for offset in (.055, .078):
+        bpy.ops.mesh.primitive_cylinder_add(vertices=8, radius=.009, depth=.14)
+        braid = bpy.context.object
+        braid.name = "Smoke braid"
+        braid.data.materials.append(HAIR)
+        braid.parent = bpy.data.objects["N_Head"]
+        braid.matrix_parent_inverse.identity()
+        braid.location = (side * offset, .018, .042)
 
 for obj in bpy.context.scene.objects:
     if obj.type == "EMPTY":
-        obj.empty_display_size = 0.001
+        obj.empty_display_size = .001
 
 bpy.ops.object.select_all(action="SELECT")
 bpy.ops.export_scene.gltf(
-    filepath=str(OUTPUT),
-    export_format="GLB",
-    use_selection=True,
-    export_yup=True,
-    export_materials="EXPORT",
-    export_image_format="AUTO",
-    export_cameras=False,
-    export_lights=False,
-    export_animations=False,
-    export_draco_mesh_compression_enable=True,
-    export_draco_mesh_compression_level=6,
+    filepath=str(OUTPUT), export_format="GLB", use_selection=True,
+    export_yup=True, export_materials="EXPORT", export_image_format="AUTO",
+    export_cameras=False, export_lights=False, export_animations=False,
+    export_draco_mesh_compression_enable=True, export_draco_mesh_compression_level=6,
 )
 print(f"Wrote {OUTPUT}")
