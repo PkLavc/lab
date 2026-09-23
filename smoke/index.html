@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Visualizador standalone Smoke com olhos, cabeça e boca animados.">
+  <link rel="canonical" href="https://pklavc.com/lab/smoke/">
+  <title>Smoke</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">{ "imports": { "three": "../t800/vendor/three/three.module.js" } }</script>
+</head>
+<body>
+  <main class="stage" aria-label="Visualizador Smoke">
+    <div id="viewport" class="viewport">
+      <div id="loading" class="loading">Carregando Smoke...</div>
+      <div id="error" class="error" hidden></div>
+    </div>
+    <section class="console" aria-label="Controles de fala">
+      <form id="speech-form" class="speech-form">
+        <label class="sr-only" for="speech-input">Texto para o personagem falar</label>
+        <input id="speech-input" name="speech" type="text" maxlength="180" autocomplete="off" placeholder="Digite uma frase..." value="Smoke on the water.">
+        <button type="submit">Falar</button>
+      </form>
+    </section>
+  </main>
+  <script type="module" src="main.js"></script>
+</body>
+</html>
