@@ -38,7 +38,7 @@ assert.match(ads, /affinity = ad/);
 assert.match(ads, /contextualAd/);
 
 assert.doesNotMatch(shorts, /Rockstar fans, here is the latest story/);
-assert.match(shorts, /Full story → Macca Blog\. Link on profile\./);
+assert.match(shorts, /Full story \\u2192 Macca Blog\. Link on profile\./);
 assert.match(shorts, /def create_thumbnail/);
 
 assert.match(queue, /def youtube_title/);
