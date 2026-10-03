@@ -88,6 +88,35 @@ const ADSENSE_SCRIPT = '<script async src="https://pagead2.googlesyndication.com
 async function readJson(file, fallback) { try { return JSON.parse(await fs.readFile(file,'utf8')); } catch { return fallback; } }
 async function writeJson(file, data) { await fs.mkdir(path.dirname(file),{recursive:true}); await fs.writeFile(file, JSON.stringify(data,null,2)+'\n'); }
 
+function normalizeTags(values, title='', description='') {
+  const text=`${title} ${description} ${(values||[]).join(' ')}`.toLowerCase();
+  const tags=[];
+  const add=value=>{ if(value&&!tags.some(existing=>existing.toLowerCase()===value.toLowerCase())) tags.push(value); };
+  if(/gta\s*6|gta\s*vi|grand theft auto\s*(?:6|vi)/i.test(text)) add('GTA 6');
+  if(/gta\s*online/i.test(text)) add('GTA Online');
+  if(/rockstar/i.test(text)) add('Rockstar Games');
+  if(/take[- ]two/i.test(text)) add('Take-Two Interactive');
+  for(const raw of values||[]) {
+    let value=String(raw||'').trim();
+    if(!value||value.length>42) continue;
+    if(/^(grand theft auto (?:6|vi)|gta vi)$/i.test(value)) value='GTA 6';
+    if(/^take[- ]two$/i.test(value)) value='Take-Two Interactive';
+    if(/^rockstar$/i.test(value)) value='Rockstar Games';
+    add(value);
+    if(tags.length>=8) break;
+  }
+  return tags.length?tags:['GTA'];
+}
+
+function normalizeCategory(value, title='', description='') {
+  const text=`${value||''} ${title} ${description}`.toLowerCase();
+  if(/gta\s*online/.test(text)) return 'GTA Online';
+  if(/gta\s*6|gta\s*vi|grand theft auto\s*(?:6|vi)/.test(text)) return 'GTA 6';
+  if(/rockstar|take[- ]two/.test(text)) return 'Rockstar Games';
+  if(/history|retrospective/.test(text)) return 'Game History';
+  return 'GTA News';
+}
+
 function latestSample(entry) {
   const values=[...(entry?.samples||[]),...(entry?.snapshots||[])];
   return values.sort((a,b)=>String(b.collectedAt||'').localeCompare(String(a.collectedAt||'')))[0]||null;
@@ -408,7 +437,7 @@ Article excerpts: ${s.excerpt||'[No body available]'}`).join('\n\n')}
   const allowedImageUrls=new Set(imageSources.map(s=>s.url));
   const inlineImages=(Array.isArray(generated.inlineImages)?generated.inlineImages:[]).filter(x=>allowedImageUrls.has(x.url)&&/^https:\/\//i.test(x.url||'')).slice(0,3).map(x=>({url:x.url,alt:String(x.alt||candidate.title).slice(0,180),caption:String(x.caption||'').slice(0,300),sourceUrl:allowedSourceUrls.has(x.sourceUrl)?x.sourceUrl:(imageSources.find(i=>i.url===x.url)?.sourceUrl||mainSource.canonical||candidate.link)}));
   const selectedThumbnail=allowedImageUrls.has(generated.thumbnail)?generated.thumbnail:(allowedImageUrls.has(mainSource.imageUrl)?mainSource.imageUrl:'');
-  const p={...generated,title,description:String(generated.description||mainSource.description||candidate.description||title).slice(0,300),category:String(generated.category||'News'),tags:Array.isArray(generated.tags)?generated.tags.map(String).slice(0,10):['GTA'],youtubeTitle:String(generated.youtubeTitle||title).trim().slice(0,78),socialHook:String(generated.socialHook||generated.description||title).trim().slice(0,220),instagramCaptionLead:String(generated.instagramCaptionLead||generated.socialHook||title).trim().slice(0,180),thumbnail:selectedThumbnail,thumbnailAlt:String(generated.thumbnailAlt||title).slice(0,180),inlineImages,date:new Date().toISOString().slice(0,10),slug:slugify(title),sourceUrl:mainSource.canonical||candidate.link,sources:[...new Map(cited.filter(s=>s.url).map(s=>[s.url,s])).values()]};
+  const p={...generated,title,description:String(generated.description||mainSource.description||candidate.description||title).slice(0,300),category:normalizeCategory(generated.category,title,generated.description||mainSource.description||candidate.description||''),tags:normalizeTags(Array.isArray(generated.tags)?generated.tags:[],title,generated.description||mainSource.description||candidate.description||''),youtubeTitle:String(generated.youtubeTitle||title).trim().slice(0,78),socialHook:String(generated.socialHook||generated.description||title).trim().slice(0,220),instagramCaptionLead:String(generated.instagramCaptionLead||generated.socialHook||title).trim().slice(0,180),thumbnail:selectedThumbnail,thumbnailAlt:String(generated.thumbnailAlt||title).slice(0,180),inlineImages,date:new Date().toISOString().slice(0,10),slug:slugify(title),sourceUrl:mainSource.canonical||candidate.link,sources:[...new Map(cited.filter(s=>s.url).map(s=>[s.url,s])).values()]};
   if(posts.some(x=>x.slug===p.slug||similarity(x.title,p.title)>0.36)) { console.log(`Skipping near-duplicate generated title: ${p.title}`); history.unshift({sourceUrl:candidate.link,title:candidate.title,date:new Date().toISOString(),status:'near-duplicate',sourceUrls:relatedFeeds.map(s=>s.link)}); await writeJson(HISTORY_FILE,history.slice(0,500)); generate.rejected++; if(generate.rejected<3) return generate(); console.log('Reached per-run limit while skipping duplicates.'); return; }
   posts.unshift(p); await writeJson(DATA_FILE,posts); history.unshift({slug:p.slug,title:p.title,sourceUrl:p.sourceUrl,sourceUrls:relatedFeeds.map(s=>s.link),date:p.date,status:'published',hash:crypto.createHash('sha256').update(`${p.title}|${p.sourceUrl}`).digest('hex')}); await writeJson(HISTORY_FILE,history.slice(0,500));
   if(process.env.INSTAGRAM_QUEUE_FILE) {
