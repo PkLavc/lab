@@ -310,6 +310,7 @@ function articleHtml(p, all) {
 
 async function build() {
   const posts=(await readJson(DATA_FILE,[])).sort((a,b)=>b.date.localeCompare(a.date));
+  await refreshPerformanceFeedback(posts);
   for(const p of posts) {
     p.image='/images/macca-blog-banner.jpg'; p.imageAlt='Macca the Gator at sunset in Vice City';
     const inlineImages=Array.isArray(p.inlineImages)?p.inlineImages:[];
