@@ -27,8 +27,12 @@ for (const source of [blog, seo]) {
 assert.match(blog, /youtubeTitle/);
 assert.match(blog, /socialHook/);
 assert.match(blog, /instagramCaptionLead/);
+assert.match(blog, /seoTitle/);
+assert.match(blog, /seoDescription/);
 assert.match(blog, /NewsArticle/);
 assert.match(blog, /BreadcrumbList/);
+assert.match(blog, /news-sitemap\.xml/);
+assert.match(seo, /blog\/news-sitemap\.xml/);
 assert.match(blog, /observations\.length<20/);
 assert.match(blog, /historicalPerformanceBonus/);
 assert.match(blog, /data-ad-context/);
