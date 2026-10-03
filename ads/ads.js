@@ -135,7 +135,32 @@ async function mountAds() {
 
     const stickyPlacements = placements.filter(({slot}) => slot.dataset.adSlot.startsWith('sticky-affiliate'));
     const regularPlacements = placements.filter(({slot}) => !slot.dataset.adSlot.startsWith('sticky-affiliate'));
-    const randomAd = ads => ads[Math.floor(Math.random() * ads.length)];
+    const contextText = String(document.body.dataset.adContext || '').toLowerCase();
+
+    const affinity = ad => {
+      const theme = String(ad.theme || '').toLowerCase();
+      const headline = String(ad.headline || ad.label || '').toLowerCase();
+      let score = Math.random() * 0.35;
+      const gaming = /gta|rockstar|gaming|gameplay|console|ps5|xbox|pc|vehicle|map|graphics|performance/.test(contextText);
+      const security = /hack|breach|security|privacy|leak|cyber|shinyhunters/.test(contextText);
+      const shopping = /collector|edition|merch|preorder|pre-order|price|product|case|accessor/.test(contextText);
+      const mobile = /mobile|phone|android|ios|handheld/.test(contextText);
+      if (gaming && /redmagic|nubia|geekbuying|govee|sunsky/.test(theme + ' ' + headline)) score += 4;
+      if (security && /hidemyname|turbovpn|vpn/.test(theme + ' ' + headline)) score += 5;
+      if (shopping && /aliexpress|alibaba|gshopper|sunsky|icases|geekbuying/.test(theme + ' ' + headline)) score += 4;
+      if (mobile && /redmagic|nubia|icases|sunsky/.test(theme + ' ' + headline)) score += 3;
+      if (!gaming && !security && !shopping && !mobile) {
+        if (/redmagic|geekbuying|aliexpress|gshopper/.test(theme + ' ' + headline)) score += 1;
+      }
+      return score;
+    };
+
+    const rankedAds = ads => [...ads].sort((a, b) => affinity(b) - affinity(a));
+    const contextualAd = (ads, excluded = new Set()) => {
+      const available = ads.filter(ad => !excluded.has(ad.href));
+      const pool = rankedAds(available.length ? available : ads).slice(0, Math.min(4, ads.length));
+      return pool[Math.floor(Math.random() * Math.max(1, pool.length))] || ads[0];
+    };
     const scheduleRotation = advance => {
       window.setTimeout(() => {
         advance();
@@ -144,14 +169,15 @@ async function mountAds() {
     };
 
     for (const {slot, ads} of regularPlacements) {
-      let index = Math.floor(Math.random() * ads.length);
-      render(slot, ads[index]);
+      let current = contextualAd(ads);
+      let index = ads.indexOf(current);
+      render(slot, current);
       if (ads.length > 1) {
         const advance = () => {
-          let next = Math.floor(Math.random() * (ads.length - 1));
-          if (next >= index) next += 1;
-          index = next;
-          render(slot, ads[index]);
+          const candidates = ads.filter((_, candidateIndex) => candidateIndex !== index);
+          const nextAd = contextualAd(candidates);
+          index = ads.indexOf(nextAd);
+          render(slot, nextAd);
         };
         scheduleRotation(advance);
       }
@@ -160,7 +186,7 @@ async function mountAds() {
     const occupied = new Set();
     for (const placement of stickyPlacements) {
       const uniqueAds = placement.ads.filter(ad => !occupied.has(ad.href));
-      placement.currentAd = randomAd(uniqueAds.length ? uniqueAds : placement.ads);
+      placement.currentAd = contextualAd(uniqueAds.length ? uniqueAds : placement.ads);
       occupied.add(placement.currentAd.href);
       render(placement.slot, placement.currentAd);
     }
@@ -174,7 +200,7 @@ async function mountAds() {
         const alternatives = available.filter(ad => ad.href !== placement.currentAd.href);
         if (alternatives.length) available = alternatives;
         if (!available.length) return;
-        placement.currentAd = randomAd(available);
+        placement.currentAd = contextualAd(available, usedByOtherBanners);
         render(placement.slot, placement.currentAd);
       };
       scheduleRotation(advance);
