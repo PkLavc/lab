@@ -109,7 +109,12 @@ jobs:
       - name: Validate growth, social and monetization pipeline
         id: test_growth
         if: github.event_name != 'schedule' || (steps.monitor.outputs.should_generate == 'true' && steps.ai_generation.outcome == 'success')
-        run: node scripts/test-growth.mjs
+        run: |
+          node scripts/test-growth.mjs
+          node --check scripts/blog.mjs
+          node --check scripts/instagram.mjs
+          node --check scripts/instagram_metrics.mjs
+          python -m py_compile scripts/article_covers.py scripts/youtube_metrics.py scripts/youtube_queue.py scripts/youtube_weekly.py src/youtube/shorts.py src/youtube/upload.py
       - name: Check whether social video queues contain work
         id: social_video_work
         if: always()
