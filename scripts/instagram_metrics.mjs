@@ -29,7 +29,7 @@ async function insightGroup(mediaId, metrics) {
   }
   const values = {};
   for (const item of body.data || []) {
-    const value = item.values?.[0]?.value ?? item.value;
+    const value = item.values?.[0]?.value ?? item.total_value?.value ?? item.value;
     if (item.name && value !== undefined) values[item.name] = value;
   }
   return values;
