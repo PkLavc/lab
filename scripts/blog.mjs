@@ -32,8 +32,11 @@ const FEEDS = [
 const DATA_FILE = path.join(ROOT, 'blog', 'posts.json');
 const HISTORY_FILE = path.join(ROOT, 'blog', 'history.json');
 const MONITOR_STATE_FILE = path.join(ROOT, 'blog', 'monitor-state.json');
+const YOUTUBE_METRICS_FILE = path.join(ROOT, 'blog', 'youtube-metrics.json');
+const INSTAGRAM_METRICS_FILE = path.join(ROOT, 'blog', 'instagram-metrics.json');
 const CANDIDATE_FILE = path.join(process.env.RUNNER_TEMP || os.tmpdir(), 'macca-blog-candidate.json');
 let successfulFeedReads = 0;
+let performanceFeedback = {enabled:false, sampleCount:0, tags:{}};
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const slugify = s => s.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,80) || 'gta-story';
 const strip = s => s.replace(/<[^>]*>/g,' ').replace(/&amp;/g,'&').replace(/&#39;/g,"'").replace(/&quot;/g,'"').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/\s+/g,' ').trim();
@@ -84,6 +87,91 @@ const ADSENSE_SCRIPT = '<script async src="https://pagead2.googlesyndication.com
 
 async function readJson(file, fallback) { try { return JSON.parse(await fs.readFile(file,'utf8')); } catch { return fallback; } }
 async function writeJson(file, data) { await fs.mkdir(path.dirname(file),{recursive:true}); await fs.writeFile(file, JSON.stringify(data,null,2)+'\n'); }
+
+function latestSample(entry) {
+  const values=[...(entry?.samples||[]),...(entry?.snapshots||[])];
+  return values.sort((a,b)=>String(b.collectedAt||'').localeCompare(String(a.collectedAt||'')))[0]||null;
+}
+
+function performanceScoreFromYoutube(sample) {
+  const m=sample?.metrics||{};
+  const views=Math.max(0,Number(m.views)||0);
+  const engaged=Math.max(0,Number(m.engagedViews)||0);
+  const avg=Math.max(0,Number(m.averageViewPercentage)||0);
+  if(!views || avg>300 || (sample?.qualityFlags||[]).includes('exclude_from_automatic_learning')) return null;
+  const engagedRate=Math.min(1,engaged/views);
+  const retention=Math.min(1,avg/120);
+  const interaction=Math.min(1,((Number(m.likes)||0)+(Number(m.comments)||0)+(Number(m.shares)||0))/views*20);
+  const distribution=Math.min(1,Math.log10(views+1)/3);
+  return 0.42*engagedRate+0.36*retention+0.12*interaction+0.10*distribution;
+}
+
+function performanceScoreFromInstagram(sample) {
+  const m=sample?.metrics||{};
+  const views=Math.max(0,Number(m.views)||0);
+  const reach=Math.max(0,Number(m.reach)||0);
+  if(!views && !reach) return null;
+  const denominator=Math.max(views,reach,1);
+  const interactions=Math.max(0,Number(m.total_interactions)||((Number(m.likes)||0)+(Number(m.comments)||0)+(Number(m.saved)||0)+(Number(m.shares)||0)));
+  const interactionRate=Math.min(1,interactions/denominator*12);
+  const reachScore=Math.min(1,Math.log10(reach+1)/3);
+  const viewScore=Math.min(1,Math.log10(views+1)/3);
+  return 0.55*interactionRate+0.25*reachScore+0.20*viewScore;
+}
+
+async function refreshPerformanceFeedback(posts) {
+  const bySlug=new Map(posts.map(post=>[post.slug,post]));
+  const youtube=await readJson(YOUTUBE_METRICS_FILE,{videos:{}});
+  const instagram=await readJson(INSTAGRAM_METRICS_FILE,{media:{}});
+  const observations=[];
+
+  for(const entry of Object.values(youtube.videos||{})) {
+    const score=performanceScoreFromYoutube(latestSample(entry));
+    const post=bySlug.get(entry?.slug);
+    if(score!=null&&post) observations.push({post,score,platform:'youtube'});
+  }
+  for(const entry of Object.values(instagram.media||{})) {
+    const slug=String(entry?.articleUrl||'').split('/').filter(Boolean).pop()||'';
+    const score=performanceScoreFromInstagram(latestSample(entry));
+    const post=bySlug.get(slug);
+    if(score!=null&&post) observations.push({post,score,platform:'instagram'});
+  }
+
+  // Avoid teaching the generator from tiny samples. Until at least 20 usable
+  // social observations exist, the historical-performance bonus remains zero.
+  if(observations.length<20) {
+    performanceFeedback={enabled:false,sampleCount:observations.length,tags:{}};
+    return;
+  }
+
+  const globalMean=observations.reduce((sum,item)=>sum+item.score,0)/observations.length;
+  const buckets=new Map();
+  for(const observation of observations) {
+    const labels=[observation.post.category,...(observation.post.tags||[])].map(value=>String(value||'').toLowerCase().trim()).filter(value=>value.length>=3);
+    for(const label of new Set(labels)) {
+      const bucket=buckets.get(label)||[];
+      bucket.push(observation.score);
+      buckets.set(label,bucket);
+    }
+  }
+  const tags={};
+  for(const [label,scores] of buckets) {
+    if(scores.length<3) continue;
+    const mean=scores.reduce((sum,value)=>sum+value,0)/scores.length;
+    tags[label]=Math.max(-1.5,Math.min(1.5,(mean-globalMean)*4));
+  }
+  performanceFeedback={enabled:true,sampleCount:observations.length,tags};
+}
+
+function historicalPerformanceBonus(item) {
+  if(!performanceFeedback.enabled) return 0;
+  const text=`${item.title||''} ${item.description||''}`.toLowerCase();
+  let bonus=0;
+  for(const [label,value] of Object.entries(performanceFeedback.tags)) {
+    if(label.length>=4&&text.includes(label)) bonus+=value;
+  }
+  return Math.max(-2.5,Math.min(2.5,bonus));
+}
 
 async function readFeed(url) {
   try {
@@ -225,6 +313,7 @@ async function monitor() {
   const candidates=await research({days:2});
   if(!successfulFeedReads) throw new Error('All research feeds failed; monitor cannot confirm whether there is new coverage.');
   const posts=await readJson(DATA_FILE,[]), history=await readJson(HISTORY_FILE,[]);
+  await refreshPerformanceFeedback(posts);
   const state=await readJson(MONITOR_STATE_FILE,{cooldowns:{}}), cooldowns=state.cooldowns||{};
   const now=Date.now(), retryAfter=6*60*60*1000;
   const fresh=candidates.filter(item=>{
@@ -259,6 +348,7 @@ async function generate() {
   const candidates=await research();
   if(!candidates.length) { console.log('No recent GTA coverage found in configured news feeds; skipping this run.'); return; }
   const posts=await readJson(DATA_FILE,[]), history=await readJson(HISTORY_FILE,[]);
+  await refreshPerformanceFeedback(posts);
   const used=sourceLinks(posts,history), saved=await readJson(CANDIDATE_FILE,null), forced=saved?.candidate?.link?saved.candidate:null;
   const ranked=candidates.filter(c=>isNovel(c,posts,history,used)).sort((a,b)=>topicScore(b)-topicScore(a));
   const candidate=forced?(candidates.find(c=>c.link===forced.link)||forced):ranked[0];
@@ -270,7 +360,7 @@ async function generate() {
   const mainSource=sourced.find(s=>s.link===candidate.link)||await fetchArticle(candidate);
   if(dryRun) console.log(`Research fetched ${sourced.length} source page(s); primary excerpt: ${(mainSource.excerpt||mainSource.description||'none').length} characters.`);
   const imageSources=sourced.filter(s=>s.imageUrl).map(s=>({url:s.imageUrl,sourceUrl:s.canonical||s.link,title:s.title}));
-  const prompt=`Act as an editor validating the lead item before writing. It must be recent, materially about Grand Theft Auto or Rockstar Games, and contain a specific report or announcement. One credible publication report or one Rockstar/Take-Two primary source is enough; a second source is not required. Return JSON with skip:true and a brief reason for irrelevant items, duplicates, stale items, memes, vague posts, or unsupported speculation. Rumors and leaks may be covered when a credible publication reports them, with clear attribution and uncertainty. Treat third-party X posts as tips, not confirmation: prefer linked reporting or a Rockstar/Take-Two primary source in related coverage. Skip an isolated social post that offers no linked report or specific, verifiable information. Do not invent missing details. Describe crime and legal matters only as attributed allegations, never as established guilt; distinguish separate investigations and avoid naming a suspect unless the identity is essential and confirmed by authoritative sources. For accepted items, write a concise English post and attribute each claim to the named publisher, forum, or account. When details are sparse, write a short 150-250 word news brief that says what the source reported and what remains unknown. Cover Rockstar Games and Take-Two news as well as GTA. Return JSON only. For accepted items include title, description, category, tags (array), featured (boolean), sections (array of {heading,paragraphs:[...]}), thumbnail (string), thumbnailAlt (string), inlineImages (array of {url,alt,caption,sourceUrl}), and sources (array of {title,url,publisher}). Use 2-3 sections. Include the source URL as supplied. For thumbnail and inline images, choose only exact URLs from AVAILABLE SOURCE IMAGES. Never invent, alter, or guess an image URL. If none is suitable, set thumbnail to empty and inlineImages to []. Images are hotlinked from the reporting page and will not be copied into the repository. The article hero/banner is always the Macca image.
+  const prompt=`Act as an editor validating the lead item before writing. It must be recent, materially about Grand Theft Auto or Rockstar Games, and contain a specific report or announcement. One credible publication report or one Rockstar/Take-Two primary source is enough; a second source is not required. Return JSON with skip:true and a brief reason for irrelevant items, duplicates, stale items, memes, vague posts, or unsupported speculation. Rumors and leaks may be covered when a credible publication reports them, with clear attribution and uncertainty. Treat third-party X posts as tips, not confirmation: prefer linked reporting or a Rockstar/Take-Two primary source in related coverage. Skip an isolated social post that offers no linked report or specific, verifiable information. Do not invent missing details. Describe crime and legal matters only as attributed allegations, never as established guilt; distinguish separate investigations and avoid naming a suspect unless the identity is essential and confirmed by authoritative sources. For accepted items, write a concise English post and attribute each claim to the named publisher, forum, or account. When details are sparse, write a short 150-250 word news brief that says what the source reported and what remains unknown. Cover Rockstar Games and Take-Two news as well as GTA. Return JSON only. For accepted items include title, description, category, tags (array), featured (boolean), youtubeTitle (max 78 characters, front-load the concrete GTA/Rockstar fact, no channel branding), socialHook (one direct factual sentence suitable for the first second of a Short/Reel), instagramCaptionLead (one concise factual hook, max 180 characters), sections (array of {heading,paragraphs:[...]}), thumbnail (string), thumbnailAlt (string), inlineImages (array of {url,alt,caption,sourceUrl}), and sources (array of {title,url,publisher}). Use 2-3 sections. Include the source URL as supplied. For thumbnail and inline images, choose only exact URLs from AVAILABLE SOURCE IMAGES. Never invent, alter, or guess an image URL. If none is suitable, set thumbnail to empty and inlineImages to []. Images are hotlinked from the reporting page and will not be copied into the repository. The article hero/banner is always the Macca image.
 LEAD ITEM: ${candidate.title}
 Publisher: ${candidate.source}
 Date: ${candidate.date}
@@ -305,7 +395,7 @@ Article excerpts: ${s.excerpt||'[No body available]'}`).join('\n\n')}
   const allowedImageUrls=new Set(imageSources.map(s=>s.url));
   const inlineImages=(Array.isArray(generated.inlineImages)?generated.inlineImages:[]).filter(x=>allowedImageUrls.has(x.url)&&/^https:\/\//i.test(x.url||'')).slice(0,3).map(x=>({url:x.url,alt:String(x.alt||candidate.title).slice(0,180),caption:String(x.caption||'').slice(0,300),sourceUrl:allowedSourceUrls.has(x.sourceUrl)?x.sourceUrl:(imageSources.find(i=>i.url===x.url)?.sourceUrl||mainSource.canonical||candidate.link)}));
   const selectedThumbnail=allowedImageUrls.has(generated.thumbnail)?generated.thumbnail:(allowedImageUrls.has(mainSource.imageUrl)?mainSource.imageUrl:'');
-  const p={...generated,title,description:String(generated.description||mainSource.description||candidate.description||title).slice(0,300),category:String(generated.category||'News'),tags:Array.isArray(generated.tags)?generated.tags.map(String).slice(0,10):['GTA'],thumbnail:selectedThumbnail,thumbnailAlt:String(generated.thumbnailAlt||title).slice(0,180),inlineImages,date:new Date().toISOString().slice(0,10),slug:slugify(title),sourceUrl:mainSource.canonical||candidate.link,sources:[...new Map(cited.filter(s=>s.url).map(s=>[s.url,s])).values()]};
+  const p={...generated,title,description:String(generated.description||mainSource.description||candidate.description||title).slice(0,300),category:String(generated.category||'News'),tags:Array.isArray(generated.tags)?generated.tags.map(String).slice(0,10):['GTA'],youtubeTitle:String(generated.youtubeTitle||title).trim().slice(0,78),socialHook:String(generated.socialHook||generated.description||title).trim().slice(0,220),instagramCaptionLead:String(generated.instagramCaptionLead||generated.socialHook||title).trim().slice(0,180),thumbnail:selectedThumbnail,thumbnailAlt:String(generated.thumbnailAlt||title).slice(0,180),inlineImages,date:new Date().toISOString().slice(0,10),slug:slugify(title),sourceUrl:mainSource.canonical||candidate.link,sources:[...new Map(cited.filter(s=>s.url).map(s=>[s.url,s])).values()]};
   if(posts.some(x=>x.slug===p.slug||similarity(x.title,p.title)>0.36)) { console.log(`Skipping near-duplicate generated title: ${p.title}`); history.unshift({sourceUrl:candidate.link,title:candidate.title,date:new Date().toISOString(),status:'near-duplicate',sourceUrls:relatedFeeds.map(s=>s.link)}); await writeJson(HISTORY_FILE,history.slice(0,500)); generate.rejected++; if(generate.rejected<3) return generate(); console.log('Reached per-run limit while skipping duplicates.'); return; }
   posts.unshift(p); await writeJson(DATA_FILE,posts); history.unshift({slug:p.slug,title:p.title,sourceUrl:p.sourceUrl,sourceUrls:relatedFeeds.map(s=>s.link),date:p.date,status:'published',hash:crypto.createHash('sha256').update(`${p.title}|${p.sourceUrl}`).digest('hex')}); await writeJson(HISTORY_FILE,history.slice(0,500));
   if(process.env.INSTAGRAM_QUEUE_FILE) {
@@ -327,7 +417,21 @@ Article excerpts: ${s.excerpt||'[No body available]'}`).join('\n\n')}
   await build(); console.log(`Published ${p.slug}`);
 }
 function similarity(a,b){const words=x=>new Set(String(x).toLowerCase().split(/[^a-z0-9]+/).filter(w=>w.length>2));const x=words(a),y=words(b);if(!x.size||!y.size)return 0;return [...x].filter(v=>y.has(v)).length/new Set([...x,...y]).size;}
-function topicScore(item){const t=`${item.title} ${item.description}`.toLowerCase();let score=0;if(/gta\s*6|grand theft auto vi|pre-?order|pre-?sale|price|leak|leaked|hack|hacked|breach|trailer|release date|rockstar/i.test(t))score+=5;if(/rumou?r|alleged|unconfirmed|speculation/i.test(t))score+=2;if(/mod|history|community|character|map|vehicle/i.test(t))score+=1;if(item.date)score+=Math.max(0,3-(Date.now()-Date.parse(item.date))/86400000/10);return score;}
+function topicScore(item){
+  const t=`${item.title||''} ${item.description||''}`.toLowerCase();
+  const source=String(item.source||'').toLowerCase();
+  let score=0;
+  if(/gta\s*6|gta\s*vi|grand theft auto (?:6|vi)|pre-?order|pre-?sale|price|trailer|release date|rockstar/i.test(t)) score+=5;
+  if(/map|weather|vehicle|gameplay|character|online|collector|merch|physics|release/i.test(t)) score+=1.25;
+  if(/leak|leaked|hack|hacked|breach/i.test(t)) score+=0.5;
+  if(/rumou?r|alleged|unconfirmed|speculation/i.test(t)) score-=1.25;
+  if(/rockstar|take[- ]two/.test(source)) score+=3;
+  else if(/game informer|gamespot|ign|pc gamer|eurogamer|videogameschronicle|rock paper shotgun/.test(source)) score+=1.25;
+  else if(/reddit|x\.com|twitter/.test(source)) score-=0.75;
+  if(item.date) score+=Math.max(0,3-(Date.now()-Date.parse(item.date))/86400000/10);
+  score+=historicalPerformanceBonus(item);
+  return score;
+}
 
 const cmd=process.argv[2]||'build';
 if(cmd==='build') await build();
