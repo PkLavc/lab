@@ -252,7 +252,11 @@ function parseModel(text) {
 function articleHtml(p, all) {
   const url=`${BASE}/blog/${p.slug}/`;
   const imagePath='/images/macca-blog-banner.webp';
-  const socialImage=/^https:\/\//i.test(String(p.thumbnail||'')) ? String(p.thumbnail) : `${BASE}/images/macca-blog-banner.jpg`;
+  const socialImage=String(p.socialImage||'').startsWith('/')
+    ? new URL(p.socialImage,`${BASE}/`).href
+    : /^https:\/\//i.test(String(p.socialImage||'')) ? String(p.socialImage)
+    : /^https:\/\//i.test(String(p.thumbnail||'')) ? String(p.thumbnail)
+    : `${BASE}/images/macca-blog-banner.jpg`;
   const articleType=/history/i.test(String(p.category||'')) ? 'BlogPosting' : 'NewsArticle';
   const adFallback=slot=>adMarkup(slot);
   const related=all.filter(x=>x.slug!==p.slug && (x.category===p.category || (Array.isArray(x.tags) && Array.isArray(p.tags) && x.tags.some(t=>p.tags.includes(t))))).slice(0,4);
