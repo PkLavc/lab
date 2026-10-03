@@ -27,7 +27,7 @@ MUSIC_DIR = ROOT / "assets" / "audio" / "shorts"
 MAX_SLIDES = 4
 MIN_DURATION = 15.0
 MAX_DURATION = 20.0
-CTA_TEXT = "Full story \u2192 link in bio."
+CTA_TEXT = "Full story → Macca Blog. Link on profile."
 
 
 def _font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
