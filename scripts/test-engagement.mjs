@@ -29,3 +29,6 @@ assert.doesNotMatch(client,/window\.open|target\s*=\s*['"]_blank/,'Recirculation
 assert.match(client,/\.article-related, \.continuous-feed/,'Fetched articles must remove their nested continuous-feed container');
 
 console.log('Engagement UI checks passed.');
+
+assert.match(engagement, /data-content-slot="story-break"/);
+assert.match(engagement, /continuous-story-break/);
