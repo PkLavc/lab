@@ -1,0 +1,57 @@
+name: Maintain Macca Instagram token
+
+on:
+  schedule:
+    - cron: "23 8 5 * *"
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Check identity and Secrets access, or renew token"
+        required: true
+        type: choice
+        default: check
+        options: [check, renew]
+  pull_request:
+    paths:
+      - ".github/workflows/instagram-token-maintenance.yml"
+      - "scripts/renew_instagram_token.py"
+      - "tests/test_renew_instagram_token.py"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macca-instagram-token-maintenance-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate token maintenance offline
+        run: |
+          python -m py_compile scripts/renew_instagram_token.py
+          python -m unittest discover -s tests -p test_renew_instagram_token.py -v
+
+  maintain:
+    needs: tests
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check or renew Instagram access
+        env:
+          INSTAGRAM_ACCESS_TOKEN: ${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
+          INSTAGRAM_ROTATION_GITHUB_TOKEN: ${{ secrets.INSTAGRAM_ROTATION_GITHUB_TOKEN }}
+          INSTAGRAM_PAGE_ID: "1398291306701395"
+          TOKEN_MAINTENANCE_ACTION: ${{ github.event_name == 'schedule' && 'renew' || inputs.action || 'check' }}
+        run: python scripts/renew_instagram_token.py "$TOKEN_MAINTENANCE_ACTION"
