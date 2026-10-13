@@ -89,7 +89,7 @@ def verify_github_access(credential: str) -> dict[str, str]:
 
 
 def renew(token: str, expected_id: str, gh_env: dict[str, str]) -> None:
-    payload = graph_get(INSTAGRAM_REFRESH, token, {"grant_type": "ig_refresh_token"})
+    payload = graph_get(INSTAGRAM_REFRESH, token, {"grant_type": "ig_refresh_token", "access_token": token})
     replacement = str(payload.get("access_token") or "").strip()
     lifetime = int(payload.get("expires_in") or 0)
     if not replacement or lifetime < 14 * 86400:
